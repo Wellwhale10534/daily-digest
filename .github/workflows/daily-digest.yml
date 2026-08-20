@@ -79,8 +79,8 @@ jobs:
 
           # Convert markdown content to HTML
           python3 <<'PYEOF' >> digest.html
-          import sys, re
-          content = sys.stdin.read()
+          import os, re
+          content = os.environ.get("DIGEST_CONTENT", "")
           
           # Split sections by ## or ###
           sections = re.split(r'\n##?\s+', content)
@@ -127,7 +127,7 @@ jobs:
                   print('</table>')
               
               print('</div>')
-          PYEOF <<< "$DIGEST_CONTENT"
+          PYEOF
 
           echo '</body></html>' >> digest.html
 
