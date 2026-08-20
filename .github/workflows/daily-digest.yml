@@ -1,0 +1,71 @@
+name: Daily Digest (Stock + TOEIC + Learning)
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # 00:00 UTC = 07:00 ICT
+  workflow_dispatch:  # ให้กดรันเองได้จาก UI
+
+permissions:
+  contents: write  # สำหรับ commit artifact (ถ้าอยากเก็บ)
+
+jobs:
+  generate-digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Generate Digest via OpenRouter
+        id: digest
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: "8775747614"
+        run: |
+          set -euo pipefail
+
+          PROMPT='You are a concise Thai financial/English tutor assistant. Generate a daily digest with exactly 3 sections in Thai: (1) Stock Digest - tech stocks (NVDA, AMD, TSM, MSFT, GOOGL, AMZN, AAPL + Thai tech: DELTA, KCE, HANA) - key news + action item. (2) TOEIC Daily - 5 vocab with grammar focus, 1 grammar drill, 1 mini reading with question. (3) Learning Topic - 1 topic (ML/DL or investing) with 10-min reading link + 1 grammar focus + 1 practice sentence. Keep each section compact. Use markdown. Reply in Thai.'
+
+          RESPONSE=$(curl -sS -X POST "https://openrouter.ai/api/v1/chat/completions" \
+            -H "Authorization: Bearer $OPENROUTER_API_KEY" \
+            -H "Content-Type: application/json" \
+            -H "HTTP-Referer: https://github.com/${{ github.repository }}" \
+            -H "X-Title: Daily Digest Bot" \
+            -d '{
+              "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+              "messages": [
+                {"role": "system", "content": "'"$PROMPT"'"},
+                {"role": "user", "content": "Generate today'"'"'s daily digest for a Thai computer engineering student who trades tech stocks, studies for TOEIC, and does ML/DL + microcontroller projects."}
+              ],
+              "temperature": 0.3,
+              "max_tokens": 2000
+            }')
+
+          CONTENT=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // "Error: no content"')
+          echo "CONTENT<<EOF" >> $GITHUB_OUTPUT
+          echo "$CONTENT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          # Send to Telegram
+          curl -sS -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{\"chat_id\":\"$TELEGRAM_CHAT_ID\",\"text\":\"$CONTENT\",\"parse_mode\":\"Markdown\"}" > /dev/null
+
+      - name: Save digest as artifact (optional)
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-digest-$(date +%F)
+          path: |
+            digest.md
+        if: always()
+
+      - name: Commit digest to repo (optional - แค่ถ้าอยากเก็บ history)
+        if: false  # ปิดไว้ก่อน ถ้าอยากเปิด改成 true
+        run: |
+          echo "${{ steps.digest.outputs.CONTENT }}" > digest-$(date +%F).md
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add digest-$(date +%F).md
+          git commit -m "chore: daily digest $(date +%F)" || echo "No changes"
+          git push
