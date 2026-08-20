@@ -76,11 +76,18 @@ jobs:
             .meta {color: #666; font-size: 13px; margin-bottom: 16px;}
           </style></head><body>
           HTMLEOF
-
-          # Convert markdown content to HTML
-          python3 <<'PYEOF' >> digest.html <<< "$DIGEST_CONTENT"
-          import sys, re
-          content = sys.stdin.read()
+          
+          # Convert markdown content to HTML (ดึงค่าผ่าน Env ของ Python แทน ปลอดภัย 100%)
+          python3 <<'PYEOF' >> digest.html
+          import sys, re, os
+          
+          # ดึงค่าจากตัวแปร ENV ที่ GitHub Actions ส่งมาให้
+          content = os.environ.get("DIGEST_CONTENT", "")
+          
+          # ตรวจสอบว่าถ้า API พัง หรือไม่มีข้อมูล ให้สร้างหน้าเว็บแจ้งเตือนแทน
+          if not content or "Error:" in content:
+              print("<div class='section'><h2>⚠️ Error</h2><p>ไม่สามารถดึงข้อมูลจาก OpenRouter API ได้ในรอบนี้ กรุณาตรวจสอบ API Key หรือเครดิต</p></div>")
+              sys.exit(0)
           
           # Split sections by ## or ###
           sections = re.split(r'\n##?\s+', content)
@@ -128,12 +135,10 @@ jobs:
               
               print('</div>')
           PYEOF
-
+          
           echo '</body></html>' >> digest.html
-
           CAPTION="📈 Stock: AI Capex supercycle intact | 📚 TOEIC: forecast/allocate/momentum | 🎯 Learn: Transfer Learning👇 กดเปิดไฟล์ดูรายละเอียดเต็ม (ตารางสีสันสวย)"
-
-          curl -sS -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendDocument" \
+          curl -sS -X POST "https://telegram.org" \
             -F "chat_id=$TELEGRAM_CHAT_ID" \
             -F "document=@digest.html" \
             -F "caption=$CAPTION" \
