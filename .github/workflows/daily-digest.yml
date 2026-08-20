@@ -78,7 +78,7 @@ jobs:
           HTMLEOF
 
           # Convert markdown content to HTML
-          python3 <<'PYEOF' >> digest.html
+          python3 <<'PYEOF' >> digest.html <<< "$DIGEST_CONTENT"
           import sys, re
           content = sys.stdin.read()
           
@@ -127,7 +127,7 @@ jobs:
                   print('</table>')
               
               print('</div>')
-          PYEOF <<< "$DIGEST_CONTENT"
+          PYEOF
 
           echo '</body></html>' >> digest.html
 
