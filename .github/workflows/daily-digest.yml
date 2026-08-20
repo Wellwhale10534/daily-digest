@@ -6,7 +6,7 @@ on:
   workflow_dispatch:  # ให้กดรันเองได้จาก UI
 
 permissions:
-  contents: write  # สำหรับ commit artifact (ถ้าอยากเก็บ)
+  contents: write
 
 jobs:
   generate-digest:
@@ -20,8 +20,6 @@ jobs:
         id: digest
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: "8775747614"
         run: |
           set -euo pipefail
 
@@ -47,25 +45,103 @@ jobs:
           echo "$CONTENT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-          # Send to Telegram
-          curl -sS -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
-            -H "Content-Type: application/json" \
-            -d "{\"chat_id\":\"$TELEGRAM_CHAT_ID\",\"text\":\"$CONTENT\",\"parse_mode\":\"Markdown\"}" > /dev/null
+      - name: Generate HTML & Send as Document
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: "8775747614"
+          DIGEST_CONTENT: ${{ steps.digest.outputs.CONTENT }}
+        run: |
+          set -euo pipefail
+          
+          # Build HTML
+          cat > digest.html <<'HTMLEOF'
+          <!DOCTYPE html>
+          <html><head><meta charset="utf-8">
+          <style>
+            body {font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; line-height: 1.6; color: #1a1a2e;}
+            h1 {color: #0066cc; border-bottom: 2px solid #0066cc; padding-bottom: 8px;}
+            h2 {color: #004499; margin-top: 24px;}
+            table {width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px;}
+            th, td {border: 1px solid #ddd; padding: 8px 10px; text-align: left;}
+            th {background: #f0f4f8; font-weight: 600;}
+            tr:nth-child(even) td {background: #fafbfc;}
+            .badge {display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600;}
+            .badge-buy {background: #e8f5e9; color: #2e7d32;}
+            .badge-hold {background: #fff3e0; color: #ef6c00;}
+            .badge-wait {background: #e3f2fd; color: #1565c0;}
+            .badge-trim {background: #fce4ec; color: #c2185b;}
+            code {background: #f5f5f5; padding: 2px 6px; border-radius: 4px; font-family: monospace;}
+            pre {background: #1e1e1e; color: #d4d4d4; padding: 12px; border-radius: 8px; overflow-x: auto;}
+            .section {margin-bottom: 28px;}
+            .meta {color: #666; font-size: 13px; margin-bottom: 16px;}
+          </style></head><body>
+          HTMLEOF
 
-      - name: Save digest as artifact (optional)
+          # Convert markdown content to HTML
+          python3 <<'PYEOF' >> digest.html
+          import sys, re
+          content = sys.stdin.read()
+          
+          # Split sections by ## or ###
+          sections = re.split(r'\n##?\s+', content)
+          
+          for sec in sections:
+              if not sec.strip(): continue
+              lines = sec.strip().split('\n')
+              title = lines[0]
+              body = '\n'.join(lines[1:])
+              
+              print(f'<div class="section"><h2>{title}</h2>')
+              
+              # Convert markdown tables to HTML
+              table_rows = []
+              for line in body.split('\n'):
+                  if '|' in line and not line.strip().startswith('|---'):
+                      cells = [c.strip() for c in line.split('|')[1:-1]]
+                      if cells:
+                          table_rows.append(cells)
+                  elif table_rows:
+                      print('<table>')
+                      for i, row in enumerate(table_rows):
+                          tag = 'th' if i == 0 else 'td'
+                          print('<tr>' + ''.join(f'<{tag}>{c}</{tag}>' for c in row) + '</tr>')
+                      print('</table>')
+                      table_rows = []
+                  
+                  # Simple conversions
+                  line = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', line)
+                  line = re.sub(r'`(.+?)`', r'<code>\1</code>', line)
+                  line = re.sub(r'^\*\s+(.+)$', r'<li>\1</li>', line)
+                  line = re.sub(r'^\d+\.\s+(.+)$', r'<li>\1</li>', line)
+                  
+                  if line.strip().startswith('<li>'):
+                      print(f'<ul>{line}</ul>')
+                  elif line.strip():
+                      print(f'<p>{line}</p>')
+              
+              if table_rows:
+                  print('<table>')
+                  for i, row in enumerate(table_rows):
+                      tag = 'th' if i == 0 else 'td'
+                      print('<tr>' + ''.join(f'<{tag}>{c}</{tag}>' for c in row) + '</tr>')
+                  print('</table>')
+              
+              print('</div>')
+          PYEOF <<< "$DIGEST_CONTENT"
+
+          echo '</body></html>' >> digest.html
+
+          CAPTION="📈 Stock: AI Capex supercycle intact | 📚 TOEIC: forecast/allocate/momentum | 🎯 Learn: Transfer Learning👇 กดเปิดไฟล์ดูรายละเอียดเต็ม (ตารางสีสันสวย)"
+
+          curl -sS -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendDocument" \
+            -F "chat_id=$TELEGRAM_CHAT_ID" \
+            -F "document=@digest.html" \
+            -F "caption=$CAPTION" \
+            > /dev/null
+
+      - name: Save digest as artifact
         uses: actions/upload-artifact@v4
         with:
           name: daily-digest-$(date +%F)
-          path: |
-            digest.md
+          path: digest.html
         if: always()
-
-      - name: Commit digest to repo (optional - แค่ถ้าอยากเก็บ history)
-        if: false  # ปิดไว้ก่อน ถ้าอยากเปิด改成 true
-        run: |
-          echo "${{ steps.digest.outputs.CONTENT }}" > digest-$(date +%F).md
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add digest-$(date +%F).md
-          git commit -m "chore: daily digest $(date +%F)" || echo "No changes"
-          git push
