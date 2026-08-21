@@ -3,7 +3,7 @@ name: Daily Digest (Stock + TOEIC + Learning)
 on:
   schedule:
     - cron: '0 0 * * *'  # 00:00 UTC = 07:00 ICT
-  workflow_dispatch:  # ให้กดรันเองได้จาก UI
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -49,11 +49,12 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: "8775747614"
+          # ใช้ DIGEST_CONTENT จาก step output (ปลอดภัยกว่า env multiline)
           DIGEST_CONTENT: ${{ steps.digest.outputs.CONTENT }}
         run: |
           set -euo pipefail
           
-          # Build HTML
+          # Build HTML header
           cat > digest.html <<'HTMLEOF'
           <!DOCTYPE html>
           <html><head><meta charset="utf-8">
@@ -76,20 +77,17 @@ jobs:
             .meta {color: #666; font-size: 13px; margin-bottom: 16px;}
           </style></head><body>
           HTMLEOF
-          
-          # Convert markdown content to HTML (ดึงค่าผ่าน Env ของ Python แทน ปลอดภัย 100%)
+
+          # Convert markdown content to HTML via Python (อ่านจาก ENV)
           python3 <<'PYEOF' >> digest.html
           import sys, re, os
           
-          # ดึงค่าจากตัวแปร ENV ที่ GitHub Actions ส่งมาให้
           content = os.environ.get("DIGEST_CONTENT", "")
           
-          # ตรวจสอบว่าถ้า API พัง หรือไม่มีข้อมูล ให้สร้างหน้าเว็บแจ้งเตือนแทน
           if not content or "Error:" in content:
               print("<div class='section'><h2>⚠️ Error</h2><p>ไม่สามารถดึงข้อมูลจาก OpenRouter API ได้ในรอบนี้ กรุณาตรวจสอบ API Key หรือเครดิต</p></div>")
               sys.exit(0)
           
-          # Split sections by ## or ###
           sections = re.split(r'\n##?\s+', content)
           
           for sec in sections:
@@ -100,13 +98,11 @@ jobs:
               
               print(f'<div class="section"><h2>{title}</h2>')
               
-              # Convert markdown tables to HTML
               table_rows = []
               for line in body.split('\n'):
                   if '|' in line and not line.strip().startswith('|---'):
                       cells = [c.strip() for c in line.split('|')[1:-1]]
-                      if cells:
-                          table_rows.append(cells)
+                      if cells: table_rows.append(cells)
                   elif table_rows:
                       print('<table>')
                       for i, row in enumerate(table_rows):
@@ -115,7 +111,6 @@ jobs:
                       print('</table>')
                       table_rows = []
                   
-                  # Simple conversions
                   line = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', line)
                   line = re.sub(r'`(.+?)`', r'<code>\1</code>', line)
                   line = re.sub(r'^\*\s+(.+)$', r'<li>\1</li>', line)
@@ -135,13 +130,17 @@ jobs:
               
               print('</div>')
           PYEOF
-          
+
           echo '</body></html>' >> digest.html
-          CAPTION="📈 Stock: AI Capex supercycle intact | 📚 TOEIC: forecast/allocate/momentum | 🎯 Learn: Transfer Learning👇 กดเปิดไฟล์ดูรายละเอียดเต็ม (ตารางสีสันสวย)"
-          curl -sS -X POST "https://telegram.org" \
-            -F "chat_id=$TELEGRAM_CHAT_ID" \
+
+          # Send to Telegram (URL ถูกต้อง + caption ในตัวแปร)
+          CAPTION="📈 Stock: AI Capex supercycle intact | 📚 TOEIC: forecast/allocate/momentum | 🎯 Learn: Transfer Learning
+👇 กดเปิดไฟล์ดูรายละเอียดเต็ม (ตารางสีสันสวย)"
+
+          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
+            -F "chat_id=${TELEGRAM_CHAT_ID}" \
             -F "document=@digest.html" \
-            -F "caption=$CAPTION" \
+            -F "caption=${CAPTION}" \
             > /dev/null
 
       - name: Save digest as artifact
