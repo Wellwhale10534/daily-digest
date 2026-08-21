@@ -134,8 +134,7 @@ jobs:
           echo '</body></html>' >> digest.html
 
           # Send to Telegram (URL ถูกต้อง + caption ในตัวแปร)
-          CAPTION="📈 Stock: AI Capex supercycle intact | 📚 TOEIC: forecast/allocate/momentum | 🎯 Learn: Transfer Learning
-👇 กดเปิดไฟล์ดูรายละเอียดเต็ม (ตารางสีสันสวย)"
+          CAPTION="📈 Stock: AI Capex supercycle intact | 📚 TOEIC: forecast/allocate/momentum | 🎯 Learn: Transfer Learning 👇 กดเปิดไฟล์ดูรายละเอียดเต็ม (ตารางสีสันสวย)"
 
           curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
             -F "chat_id=${TELEGRAM_CHAT_ID}" \
